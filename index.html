@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#c4170c" />
+  <title>Portal News Brasil</title>
+  <meta name="description" content="Portal News Brasil - notícias do Brasil e do mundo" />
+  <link rel="icon" href="assets/logo.svg" type="image/svg+xml" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="top-sites" aria-label="atalhos">
+    <a href="#" class="top-sites__link" aria-label="globo.com">globo.com</a>
+    <a href="#" class="top-sites__link is-active" aria-label="g1">g1</a>
+    <a href="#" class="top-sites__link" aria-label="ge">ge</a>
+    <a href="#" class="top-sites__link" aria-label="gshow">gshow</a>
+    <a href="#" class="top-sites__link" aria-label="globoplay">globoplay</a>
+  </div>
+
+  <header class="app-header">
+    <button class="icon-btn" id="btnMenu" aria-label="abrir menu" title="Menu">☰</button>
+
+    <div class="brand">
+      <img src="assets/logo.svg" class="brand__logo" alt="Portal News Brasil" />
+      <div class="brand__text">
+        <div class="brand__g1">portal</div>
+        <div class="brand__name">NEWS BRASIL</div>
+      </div>
+    </div>
+
+    <div class="header-actions">
+      <button class="icon-btn" id="btnSearch" aria-label="pesquisar" title="Pesquisar">🔎</button>
+      <button class="icon-btn" id="btnProfile" aria-label="perfil" title="Perfil">👤</button>
+    </div>
+  </header>
+
+  <aside class="drawer" id="drawer" aria-hidden="true">
+    <div class="drawer__backdrop" id="drawerBackdrop"></div>
+    <div class="drawer__panel" role="dialog" aria-modal="true" aria-label="Menu">
+      <div class="drawer__header">
+        <strong>Seções</strong>
+        <button class="icon-btn" id="btnCloseMenu" aria-label="fechar menu">✕</button>
+      </div>
+
+      <nav class="drawer__nav" id="sectionNav"><!-- preenchido via JS --></nav>
+
+      <div class="drawer__footer">
+        <small>Fonte: GNews API</small>
+      </div>
+    </div>
+  </aside>
+
+  <div class="search" id="search" aria-hidden="true">
+    <div class="search__bar">
+      <input id="searchInput" type="search" placeholder="Buscar notícias..." autocomplete="off" />
+      <button class="icon-btn" id="btnSearchGo" aria-label="buscar">→</button>
+      <button class="icon-btn" id="btnSearchClose" aria-label="fechar busca">✕</button>
+    </div>
+  </div>
+
+  <main class="container">
+    <section class="featured" id="featured">
+      <div class="featured__media skeleton" id="featuredMedia"></div>
+      <div class="featured__content">
+        <div class="featured__badge">
+          <span class="badge">AO VIVO</span>
+          <span class="muted" id="featuredMeta">Carregando…</span>
+        </div>
+        <h1 class="featured__title skeleton-line" id="featuredTitle">Carregando manchete…</h1>
+      </div>
+    </section>
+
+    <section class="list">
+      <div class="list__header">
+        <h2 id="listTitle">Destaques</h2>
+        <button class="ghost-btn" id="btnRefresh" title="Atualizar">Atualizar</button>
+      </div>
+
+      <div class="status" id="status" role="status" aria-live="polite"></div>
+
+      <div class="cards" id="cards"><!-- preenchido via JS --></div>
+
+      <div class="load-more">
+        <button class="primary-btn" id="btnMore">Carregar mais</button>
+      </div>
+    </section>
+  </main>
+
+  <nav class="bottom-nav" aria-label="navegação">
+    <button class="bottom-nav__item is-active" data-section="general">
+      <span class="bottom-nav__icon">🏠</span>
+      <span class="bottom-nav__label">destaques</span>
+    </button>
+    <button class="bottom-nav__item" data-section="nation">
+      <span class="bottom-nav__icon">📍</span>
+      <span class="bottom-nav__label">região</span>
+    </button>
+    <button class="bottom-nav__item" data-section="world">
+      <span class="bottom-nav__icon">▶️</span>
+      <span class="bottom-nav__label">mundo</span>
+    </button>
+    <button class="bottom-nav__item" data-section="technology">
+      <span class="bottom-nav__icon">🧩</span>
+      <span class="bottom-nav__label">tech</span>
+    </button>
+  </nav>
+
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
