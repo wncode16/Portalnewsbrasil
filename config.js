@@ -8,8 +8,8 @@ window.PORTAL_NEWS_CONFIG = {
 
   // Opção B (recomendado): usar um proxy e NÃO expor a chave no front-end.
   // Exemplo: "https://portal-news-proxy.seudominio.workers.dev"
-  PROXY_BASE: "",
-  portalnewsbrasil03.wncode16.workers.dev
+  PROXY_BASE: "portalnewsbrasil03.wncode16.workers.dev",
+  
   // Defaults
   lang: "pt",
   country: "br",
