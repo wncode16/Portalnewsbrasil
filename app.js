@@ -1,7 +1,7 @@
 /* Portal News Brasil (GitHub Pages)
    - UI inspirado no layout mobile do G1/GloboNews (header vermelho + cards)
-   - Dados via GNews API (top-headlines / search)
-   Parâmetros (category/lang/country/max/page/from) estão na documentação oficial. 
+   - Agora: SOMENTE suas notícias via Worker API: /api/posts
+     Ex.: https://portalnewsbrasil03.wncode16.workers.dev/api/posts
 */
 
 (() => {
@@ -9,27 +9,41 @@
 
   const cfg = window.PORTAL_NEWS_CONFIG || {};
   const PAGE_SIZE = Number(cfg.pageSize || 12);
-  const LANG = (cfg.lang || 'pt').trim();
-  const COUNTRY = (cfg.country || 'br').trim();
 
+  // ✅ SUA API (Worker)
+  // Você pode sobrescrever no config.js com:
+  // OWN_API_BASE: "https://seu-worker.seu-subdominio.workers.dev"
+  const BASE = String(cfg.OWN_API_BASE || 'https://portalnewsbrasil03.wncode16.workers.dev')
+    .trim()
+    .replace(/\/$/, '');
+  const API_POSTS_URL = `${BASE}/api/posts`;
+
+  // Categorias viram filtros por tags dos seus posts
   const CATEGORIES = [
-    { id: 'general', label: 'Destaques', hint: 'geral' },
-    { id: 'nation', label: 'Brasil', hint: 'país' },
-    { id: 'world', label: 'Mundo', hint: 'internacional' },
-    { id: 'business', label: 'Economia', hint: 'negócios' },
-    { id: 'technology', label: 'Tecnologia', hint: 'tech' },
-    { id: 'sports', label: 'Esportes', hint: 'esportes' },
-    { id: 'entertainment', label: 'Entretenimento', hint: 'cultura' },
-    { id: 'science', label: 'Ciência', hint: 'ciência' },
-    { id: 'health', label: 'Saúde', hint: 'saúde' },
+    { id: 'general', label: 'Destaques', hint: 'geral', tag: null },
+    { id: 'nation', label: 'Brasil', hint: 'país', tag: 'brasil' },
+    { id: 'world', label: 'Mundo', hint: 'internacional', tag: 'mundo' },
+    { id: 'business', label: 'Economia', hint: 'negócios', tag: 'economia' },
+    { id: 'technology', label: 'Tecnologia', hint: 'tech', tag: 'tecnologia' },
+    { id: 'sports', label: 'Esportes', hint: 'esportes', tag: 'esportes' },
+    { id: 'entertainment', label: 'Entretenimento', hint: 'cultura', tag: 'entretenimento' },
+    { id: 'science', label: 'Ciência', hint: 'ciência', tag: 'ciencia' },
+    { id: 'health', label: 'Saúde', hint: 'saúde', tag: 'saude' },
   ];
 
   const state = {
     category: 'general',
     query: '',
-    page: 1,
     loading: false,
-    articles: [],
+
+    // dados brutos
+    allPosts: [],
+
+    // após filtro (categoria/busca)
+    filtered: [],
+
+    // paginação local
+    cursor: 0,
   };
 
   const el = {
@@ -56,10 +70,6 @@
     btnRefresh: document.getElementById('btnRefresh'),
   };
 
-  function fromLast24hISO() {
-    return new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  }
-
   function escapeHtml(s) {
     return String(s ?? '')
       .replaceAll('&', '&amp;')
@@ -79,47 +89,11 @@
     }
   }
 
-  function getBaseUrl() {
-    const proxy = (cfg.PROXY_BASE || '').trim();
-    if (proxy) return proxy.replace(/\/$/, '');
-    return 'https://gnews.io/api/v4';
-  }
-
-  function ensureApiKeyIfNeeded(params) {
-    // Se você NÃO estiver usando proxy, precisa colocar a chave no config.js.
-    // No proxy, a chave fica no servidor.
-    const usingProxy = Boolean((cfg.PROXY_BASE || '').trim());
-    if (usingProxy) return;
-
-    const key = (cfg.GNEWS_API_KEY || '').trim();
-    if (!key || key.includes('COLE_SUA_CHAVE')) {
-      throw new Error('Cole sua chave da GNews em config.js (GNEWS_API_KEY) ou configure um PROXY_BASE.');
-    }
-    params.set('apikey', key);
-  }
-
-  function buildUrl() {
-    const base = getBaseUrl();
-    const isSearch = Boolean(state.query && state.query.trim());
-    const endpoint = isSearch ? 'search' : 'top-headlines';
-
-    const params = new URLSearchParams();
-    params.set('lang', LANG);
-    params.set('country', COUNTRY);
-    params.set('max', String(PAGE_SIZE));
-    params.set('page', String(state.page));
-    params.set('from', fromLast24hISO());
-
-    if (isSearch) {
-      params.set('q', state.query.trim());
-      params.set('sortby', 'publishedAt');
-      params.set('in', 'title,description');
-    } else {
-      params.set('category', state.category);
-    }
-
-    ensureApiKeyIfNeeded(params);
-    return `${base}/${endpoint}?${params.toString()}`;
+  function norm(s) {
+    return String(s || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase();
   }
 
   function setStatus(text) {
@@ -163,6 +137,21 @@
     });
   }
 
+  // Converte seu post no “formato de card” que a UI já usa
+  function postToCard(post) {
+    return {
+      id: post.id,
+      title: post.title || '—',
+      description: post.summary || post.description || '',
+      image: post.image || '',
+      publishedAt: post.publishedAt || post.date || '',
+      source: { name: 'Portal News Brasil' },
+      // não usamos link externo; abrimos modal
+      url: '#',
+      _raw: post,
+    };
+  }
+
   function renderFeatured(article) {
     if (!article) return;
 
@@ -174,19 +163,14 @@
     el.featuredMedia.classList.remove('skeleton');
     el.featuredTitle.classList.remove('skeleton-line');
 
-    el.featuredMedia.style.backgroundImage = img ? `url('${img.replaceAll("'", "%27") }')` : 'none';
+    el.featuredMedia.style.backgroundImage = img ? `url('${img.replaceAll("'", "%27")}')` : 'none';
     el.featuredTitle.textContent = title;
     el.featuredMeta.textContent = [src, time].filter(Boolean).join(' • ');
 
-    // Clique abre a matéria
-    const url = article.url || '#';
-    el.featuredMedia.style.cursor = url !== '#' ? 'pointer' : 'default';
-    el.featuredTitle.style.cursor = url !== '#' ? 'pointer' : 'default';
+    el.featuredMedia.style.cursor = 'pointer';
+    el.featuredTitle.style.cursor = 'pointer';
 
-    const open = () => {
-      if (url && url !== '#') window.open(url, '_blank', 'noopener');
-    };
-
+    const open = () => openPostModal(article._raw);
     el.featuredMedia.onclick = open;
     el.featuredTitle.onclick = open;
   }
@@ -198,11 +182,10 @@
       const img = a.image || '';
       const src = escapeHtml((a.source && a.source.name) ? a.source.name : '');
       const time = a.publishedAt ? fmtTime(a.publishedAt) : '';
-      const url = a.url || '#';
 
       return `
-        <article class="card" tabindex="0" role="link" data-url="${escapeHtml(url)}">
-          <div class="card__img" style="background-image:${img ? `url('${img.replaceAll("'", "%27") }')` : 'none'}"></div>
+        <article class="card" tabindex="0" role="button" data-id="${escapeHtml(a.id || '')}">
+          <div class="card__img" style="background-image:${img ? `url('${img.replaceAll("'", "%27")}')` : 'none'}"></div>
           <div class="card__content">
             <h3 class="card__title">${title}</h3>
             <div class="card__meta">
@@ -218,11 +201,11 @@
     if (append) el.cards.insertAdjacentHTML('beforeend', html);
     else el.cards.innerHTML = html;
 
-    // Delegation
     el.cards.querySelectorAll('.card').forEach((card) => {
       const open = () => {
-        const url = card.getAttribute('data-url');
-        if (url && url !== '#') window.open(url, '_blank', 'noopener');
+        const id = card.getAttribute('data-id');
+        const post = state.allPosts.find((p) => String(p.id) === String(id));
+        if (post) openPostModal(post);
       };
       card.addEventListener('click', open);
       card.addEventListener('keydown', (e) => {
@@ -234,12 +217,83 @@
     });
   }
 
+  function applyFilters() {
+    const cat = CATEGORIES.find((c) => c.id === state.category) || CATEGORIES[0];
+    const tagNeed = cat.tag; // null = todos
+    const q = norm(state.query);
+
+    let posts = [...state.allPosts];
+
+    // ordena por data desc
+    posts.sort((a, b) => {
+      const da = new Date(a.publishedAt || a.date || 0).getTime();
+      const db = new Date(b.publishedAt || b.date || 0).getTime();
+      return db - da;
+    });
+
+    if (tagNeed) {
+      posts = posts.filter((p) => {
+        const tags = Array.isArray(p.tags) ? p.tags : [];
+        const tagsNorm = tags.map(norm);
+        return tagsNorm.includes(norm(tagNeed));
+      });
+    }
+
+    if (q) {
+      posts = posts.filter((p) => {
+        const hay = norm(`${p.title || ''} ${p.summary || p.description || ''} ${p.content || ''}`);
+        return hay.includes(q);
+      });
+    }
+
+    state.filtered = posts;
+    state.cursor = 0;
+  }
+
+  async function fetchAllPosts() {
+    const res = await fetch(API_POSTS_URL, { method: 'GET' });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '');
+      throw new Error(`Erro ${res.status}: ${detail || res.statusText}`);
+    }
+    const data = await res.json(); // aqui precisa ser ARRAY JSON
+    if (!Array.isArray(data)) return [];
+    return data;
+  }
+
+  function renderNextPage({ reset }) {
+    const slice = state.filtered.slice(state.cursor, state.cursor + PAGE_SIZE).map(postToCard);
+
+    if (reset) {
+      // featured = 1o item da lista filtrada
+      const first = state.filtered[0] ? postToCard(state.filtered[0]) : null;
+      renderFeatured(first);
+
+      // cards = a partir do segundo item
+      const rest = state.filtered.slice(1, 1 + PAGE_SIZE).map(postToCard);
+      renderCards(rest, false);
+
+      state.cursor = 1 + PAGE_SIZE;
+    } else {
+      renderCards(slice, true);
+      state.cursor += PAGE_SIZE;
+    }
+
+    const total = state.filtered.length;
+    const shown = Math.min(state.cursor, total);
+
+    if (!total) setStatus('Nenhuma notícia encontrada.');
+    else setStatus(`Mostrando ${shown} de ${total} notícias.`);
+
+    // botão "mais"
+    const hasMore = state.cursor < total;
+    el.btnMore.style.display = hasMore ? '' : 'none';
+  }
+
   async function load({ reset }) {
     if (state.loading) return;
 
     if (reset) {
-      state.page = 1;
-      state.articles = [];
       el.cards.innerHTML = '';
       el.featuredMedia.classList.add('skeleton');
       el.featuredTitle.classList.add('skeleton-line');
@@ -251,29 +305,14 @@
     setStatus('Carregando…');
 
     try {
-      const url = buildUrl();
-      const res = await fetch(url);
-      if (!res.ok) {
-        const detail = await res.text().catch(() => '');
-        throw new Error(`Erro ${res.status}: ${detail || res.statusText}`);
-      }
-
-      const data = await res.json();
-      const articles = Array.isArray(data.articles) ? data.articles : [];
-
-      if (reset) {
-        renderFeatured(articles[0]);
-        renderCards(articles.slice(1), false);
-        state.articles = articles;
+      // carrega do worker só quando resetar (refresh / troca de filtro / busca)
+      if (reset || !state.allPosts.length) {
+        state.allPosts = await fetchAllPosts();
+        applyFilters();
+        renderNextPage({ reset: true });
       } else {
-        renderCards(articles, true);
-        state.articles = state.articles.concat(articles);
+        renderNextPage({ reset: false });
       }
-
-      if (!state.articles.length) setStatus('Nenhuma notícia encontrada nas últimas 24h.');
-      else setStatus(`Mostrando ${state.articles.length} notícias (últimas 24h).`);
-
-      state.page += 1;
     } catch (err) {
       console.error(err);
       setStatus(`⚠️ ${err?.message || 'Falha ao carregar notícias'}`);
@@ -310,12 +349,93 @@
     load({ reset: true });
   }
 
-  // Eventos (menu)
+  // ===== Modal (texto completo) =====
+  function ensureModal() {
+    if (document.getElementById('postModal')) return;
+
+    const style = document.createElement('style');
+    style.textContent = `
+      .pn-modal{position:fixed;inset:0;z-index:9999;display:none}
+      .pn-modal.is-open{display:block}
+      .pn-modal__backdrop{position:absolute;inset:0;background:rgba(0,0,0,.55)}
+      .pn-modal__sheet{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+        width:min(92vw,720px);max-height:86vh;overflow:auto;background:#fff;border-radius:14px;
+        box-shadow:0 12px 40px rgba(0,0,0,.25);padding:16px}
+      .pn-modal__close{border:none;background:#f2f2f2;border-radius:10px;padding:10px 12px;cursor:pointer}
+      .pn-modal__title{font-size:20px;line-height:1.25;margin:12px 0 6px}
+      .pn-modal__meta{color:#666;font-size:12px;margin-bottom:10px}
+      .pn-modal__img{width:100%;border-radius:12px;display:none;margin:10px 0}
+      .pn-modal__content{font-size:15px;line-height:1.55;color:#222;white-space:pre-wrap}
+      .pn-modal__tags{margin-top:10px;color:#666;font-size:12px}
+    `;
+    document.head.appendChild(style);
+
+    const modal = document.createElement('div');
+    modal.id = 'postModal';
+    modal.className = 'pn-modal';
+    modal.innerHTML = `
+      <div class="pn-modal__backdrop" data-close="1"></div>
+      <div class="pn-modal__sheet" role="dialog" aria-modal="true">
+        <button class="pn-modal__close" type="button" data-close="1">Fechar ✕</button>
+        <h2 class="pn-modal__title" id="pnModalTitle"></h2>
+        <div class="pn-modal__meta" id="pnModalMeta"></div>
+        <img class="pn-modal__img" id="pnModalImg" alt="">
+        <div class="pn-modal__content" id="pnModalContent"></div>
+        <div class="pn-modal__tags" id="pnModalTags"></div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+
+    modal.querySelectorAll('[data-close="1"]').forEach((x) => {
+      x.addEventListener('click', closePostModal);
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closePostModal();
+    });
+  }
+
+  function openPostModal(post) {
+    ensureModal();
+    const modal = document.getElementById('postModal');
+    const t = document.getElementById('pnModalTitle');
+    const m = document.getElementById('pnModalMeta');
+    const img = document.getElementById('pnModalImg');
+    const c = document.getElementById('pnModalContent');
+    const tags = document.getElementById('pnModalTags');
+
+    t.textContent = post.title || '—';
+    m.textContent = post.publishedAt ? fmtTime(post.publishedAt) : '';
+    c.textContent = post.content || post.summary || post.description || '';
+
+    const srcImg = (post.image || '').trim();
+    if (srcImg) {
+      img.src = srcImg;
+      img.style.display = 'block';
+    } else {
+      img.removeAttribute('src');
+      img.style.display = 'none';
+    }
+
+    const tgs = Array.isArray(post.tags) ? post.tags : [];
+    tags.textContent = tgs.length ? `Tags: ${tgs.join(', ')}` : '';
+
+    modal.classList.add('is-open');
+    modal.setAttribute('aria-hidden', 'false');
+  }
+
+  function closePostModal() {
+    const modal = document.getElementById('postModal');
+    if (!modal) return;
+    modal.classList.remove('is-open');
+    modal.setAttribute('aria-hidden', 'true');
+  }
+
+  // ===== Eventos =====
   el.btnMenu.addEventListener('click', () => openDrawer(true));
   el.btnCloseMenu.addEventListener('click', () => openDrawer(false));
   el.drawerBackdrop.addEventListener('click', () => openDrawer(false));
 
-  // Eventos (busca)
   el.btnSearch.addEventListener('click', () => openSearch(true));
   el.btnSearchClose.addEventListener('click', () => openSearch(false));
   el.btnSearchGo.addEventListener('click', () => runSearch(el.searchInput.value));
@@ -324,11 +444,12 @@
     if (e.key === 'Escape') openSearch(false);
   });
 
-  // Eventos (listagem)
-  el.btnRefresh.addEventListener('click', () => load({ reset: true }));
+  el.btnRefresh.addEventListener('click', () => {
+    state.allPosts = [];
+    load({ reset: true });
+  });
   el.btnMore.addEventListener('click', () => load({ reset: false }));
 
-  // Bottom nav
   document.querySelectorAll('.bottom-nav__item').forEach((btn) => {
     btn.addEventListener('click', () => selectCategory(btn.getAttribute('data-section')));
   });
